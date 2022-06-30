@@ -1,0 +1,599 @@
+* ^0.8.0的更新
+** SafeMath
+用Unchecked{}包裹，可以不启用SafeMath
+
+** 自定义错误
+revert 的时候gas和错误信息长短相关
+```
+error NameError(params...);
+
+revert NameError(...params);
+```
+自定义的错误产生的gas较少
+
+** 函数
+- 在合约之外定义
+- 在函数中不能有状态变量
+
+** 引入
+- 类似于js的引用解构import { ContractName1, ContractName2, FunctionName as alias } from "./Sol.sol";
+
+** Create2？？？？
+之前使用在内敛汇编中
+```
+assembly {
+...
+}
+```
+现在加入salt，自动使用新的Create2，会有确定的合约地址
+
+* 语法
+** 类型
+- int最大值/最小值 type(int).max type(int).min
+- bytes32 最长32字节（32*2 64个F，一个字节8位，4位一个F）
+
+** 函数
+- pure 纯函数，没有状态
+
+** 全局变量
+- address msg.sender
+- uint block.timestamp 区块的时间戳
+- uint block.number 区块高度
+
+** 常量
+- uint public constant myVar = 1234;
+  type area  constanf name
+- 常量gas更少
+
+** 流程控制
+- if-else
+  ```
+  if (xxx) {
+    xxx
+  } else if (yyy) {
+    yyy
+  } else {
+    zzz
+  }
+  ```
+- 三元
+  ```
+  xxx ? yyy : zzz
+  ```
+- for ( xx; yy; zz) { continue/ break }
+- while ( xx ) { ... }
+
+- 循环尽量少，费gas
+
+** 错误处理
+- require 检查变量，抛出报错信息。全退回，全回滚
+- revert 直接抛出异常
+- assert 检查变量，不包括报错信息
+- 自定义错误 使用见一开始
+- 都有 gas退还，状态回滚
+
+** 函数修改器
+- modifier
+  ```
+  modifier funcName() {
+    xxx; // 修饰函数的函数体
+    _; // 被修饰函数的函数体
+    yyy; // 修饰函数其他的函数体
+  }
+  ```
+- 直接放在被修饰函数后，returns之前
+- 定义课带参数，使用的时候直接加入参数
+- 定义的时候不需要使用访问限制关键字
+
+** 构造函数
+- constructer()
+- 不需要声明访问限制关键字
+
+** 函数返回值
+- 可以在返回值处声明返回变量名，隐式的返回
+- 接收的时候，不要使用的变量可以省略，但逗号要保留
+  ```
+  (uint i, address a) = funcCall();
+  (uint i,) = funcCall();
+  ```
+
+** 数组
+- uint[] 动态
+  - push()
+  - a[i] 访问
+  - delete a[i] 删除，但是不改变长度，只是讲对应的内容改为默认值
+  - pop() 弹出最后一个数组
+  - length 没有括号！不是函数
+- uint[3] 静态
+  - a[i] 访问
+  - delete a[i] 删除，但是不改变长度，只是讲对应的内容改为默认值
+  - length 没有括号！不是函数
+- uint[] memory a = new uint[](5) 内存中只能创建静态定长数组
+  操作同静态数组
+- 状态变量public可以直接访问，数组只能通过索引访问，要想一次返回，需要自己写函数
+  ```
+  function func() public view returns(uint[] memory) {
+  }
+  ```
+*** 删除
+删除一个元素
+- 用后面的替换，最后pop掉最后的元素
+  这种费gas
+- 用最后一个元素替换要删除的元素，之后pop掉最后一个元素
+  省gas，但是数组顺序被打乱
+
+** 映射
+- mapping(<type> => <type>) public name;
+*** 访问
+- 直接a[key] 访问
+- 访问没定义的key a[key]返回默认值
+*** 删除
+delete a[key] 值变为默认值
+
+*** 映射不能遍历
+可以结合数组，实现遍历
+
+** 结构体
+*** 定义
+  ```
+  struct Name {
+    ...
+  }
+  ```
+- 初始化
+  - Name(values...) 按定义元素的顺序
+  - Name({key: value, key: value...}) 用一个对象，对象结构为结构体的解构加value。不需要顺序
+  - Name memory name; name.key = value 先创建对象（成员为默认值），之后在设置
+- Array.push(structName(value, value...)) 创建的struct临时变量是在内存中的
+
+*** 访问
+在操作结构体在数组中的时候，一般接收出来的解构提都在memory中，但是是不可修改/删除的
+所以要修改的化需要定义在storage中。并且这个结构体的元素实际上是这个解构体的指针
+
+*** 删除
+- 也可以用
+  delete name.key
+  同样是设置为默认值
+- 如果结构体是数组的元素，在删除这个数组元素的时候，是结构体的所有成员都设置为默认值
+
+** 枚举
+*** 定义
+```
+Enum Name {
+  xxx,
+  yyy,
+}
+```
+
+** 部署合约
+*** 内联汇编调用create
+内联汇编
+```
+assembly {
+}
+```
+create(v, p, n)
+v: 要发送的eth数 callvalue() == msg.value
+p: 内存中code开始的指针 add(_code, 0x20) 从_code的地址开始，跳过0x20的长度
+n: code的长度 mload(_code) 获取code大小
+返回值是地址
+
+最终为
+```
+function deploy(bytes memory _code) external payable returns(address _addr) {
+    assembly {
+        _addr = create(callvalue(), add(_code, 0x20), mload(_code))
+    }
+    require(_addr != address(0), "Create contract failed");
+}
+```
+PS: 创建之后要判断地址是否为0，保证创建成功
+
+** 数据存储位置
+- storage 状态变量存储
+- memory 内置类型默认局部变量。
+- calldata 函数参数，只读。
+
+ PS：
+ - 在函数中，可以从状态变量中去取出数组数据结构体数据放在memory中，但是修改后，不会保存在链上。
+ - 在函数中声明数组，字符串，结构体默认会在在storage中。
+ - 参数/返回值是 数组/字符串/结构体 的时候，要指定memory或者calldata（仅参数）存储位置
+ - calldata节约gas。因为没有copy，所以他也是只读的。
+ - 这个机制可能是golang的思想。在默认在storage中的都是引用类型。
+
+** 事件
+- 定义
+  ```
+  event Name(params...);
+  ```
+- 使用
+  ```
+  emit Name(...params);
+  ```
+  事件会记录在区块链上，会改变状态，会产生gas
+
+- 索引 max 3
+  event eventName(address indexed, uint value);
+  标记了indexed的字段可以在以太坊浏览器上搜索
+  索引最多有三个
+
+** 继承
+- 可以在子合约中覆盖的函数，增加virtual关键字
+- 在子合约中覆盖父合约的函数，增加override关键字
+- 子合约还要被其他合约继承，并且还要重写，再加上virtual。即virtual override
+- ⚠️多继承的时候，更接近基础合约的放在前面，并且如果继承的多个合约中用相同要override的函数，
+  需要标记要override的合约
+  ```
+    X
+   /|
+  Y |
+   \|
+    Z
+
+  contract X {
+    function x() public virtual {}
+  }
+
+  contract Y is Z {
+    function x() public virtual override {}
+  }
+
+  contract Z is X, Y {
+    function x() public virtual override(X, Y) {}
+  }
+  ```
+- 多继承的构造函数
+  在继承的合约上，类似创建合约的语法来初始化
+  ```
+  contract S {
+    constructor(string memory _name) {}
+  }
+
+  contract T {
+    constructor(string memory text) {}
+  }
+
+  // 继承的可以
+  contract U is S("s"), T("t") {
+  }
+
+  // 也可以，类似modifier
+  contract V is S, T {
+    contructor(string memory _name, string memory _text) S(_name) T(_text){
+    }
+  }
+
+  // 也可以混合
+  contract VV is S("s"), T {
+    contructor(string memory _name, string memory _text) T(_text){
+    }
+  }
+
+  // 也可以混合
+      
+  ```
+PS: ⚠️
+构造函数后面继承的父类的初始化的顺序不限制，应为由is后的顺序限制
+- 调用父合约的函数
+  ```
+    E
+   / \
+  F   G
+   \ /
+    H
+
+  contract E {
+    event Log(string message);
+
+    function foo() public virtual {
+      emit Log("E.foo");
+    }
+
+    function bar() public virtual {
+      emit Log("E.bar");
+    }
+  }
+
+  contract F is E {
+    function foo() public virtual override {
+      emit Log("F.foo");
+      // 调用父级合约，直接用父级合约名
+      E.foo();
+    }
+
+    function bar() public virtual override {
+      emit Log("F.bar");
+      // 调用父级合约，用super关键字
+      super.bar();
+    }
+  }
+
+  contract G is E {
+    function foo() public virtual override {
+      emit Log("G.foo");
+      // 调用父级合约，直接用父级合约名
+      E.foo();
+    }
+
+    function bar() public virtual override {
+      emit Log("G.bar");
+      // 调用父级合约，用super关键字
+      super.bar();
+    }
+  }
+
+  contract H is  F, G {
+    function foo() public virtual override(F, G) {
+      // 调用父级合约，直接用父级合约名。
+      F.foo();
+    }
+
+    function bar() public virtual override(F, G) {
+      // 调用父级合约，用super关键字。F，G合约的bar都会被触发。在此例中，父合约的bar中都
+      调用的E合约的bar，所以这里也会被调用，但只会被调用一次
+      super.bar();
+    }
+  }
+  ```
+
+** 不可变常量
+immutable 类似constant。
+有的时候常量不是创建的时候可知的，要创建后才知道，可以将这类比量标记为immutable，可以节省gas
+```
+contract Immutable {
+  address public immutable owner = msg.sender;
+}
+
+or
+contract Immutable {
+  address public immutable owner;
+  contructor() {
+    owner = msg.sender;
+  }
+}
+定义了immutable的变量，除此之外的赋值或者未赋值，都会报错
+```
+
+** payable
+- 标记了payable关键字的函数，可以接受以太坊主币的传入
+- 标记了payable关键字的地址（address），可以发送以太坊主币
+  如果这个地址要在构造函数中复制，赋值的对象也要标记payable
+  ```
+  contract Payable {
+    address payable public owner;
+    constructor() {
+      owner = payable(msg.sender);
+    }
+  }
+  ```
+  PS: 当前合约的地址取法
+  ```
+  constract Payable {
+    function func() public {
+      address(this).xxxx  // this 加类型断言
+    }
+  }
+  ```
+
+** 回退函数fallback()/receive() ⚠️ receive修饰必须要external
+- 当调用合约中不存在的函数的时候，fallback会被调用
+  ```
+  contract Fallback {
+    fallback() public {}
+  }
+  ```
+- 当直接给合约发主币的时候，会调用fallback（其实也是相当于调用一个不存在的函数）
+  ```
+  contract Fallback {
+    fallback() public payable {}
+  }
+  ==
+  contract Fallback {
+    receive() external payable {} // receive函数必须加上payable 0.8.0的新特性
+  }
+  ```
+- 调用链
+  ```
+       Ether is send to Contract
+                   |
+           is msg.data empty?
+                  / \
+               yes    no
+               /       \
+    receive() exist? fallback()
+            / \
+         yes   no
+         /       \
+    receive()  fallback()
+  ```
+  ⚠️ 在没有data（发送数据的时候）先尝试调用receive()，再调用fallback()。但是有数据的时候会调用fallback
+               
+** 发送主币
+- transfer() 2300 gas, 如果异常报出revert
+- send() 2300 gas, return bool标记是否成功
+- call() all gas, return bool 和 data
+```
+contract SendEther {
+
+```
+PS:
+- 查看消耗gas，用内置函数gasleft()
+- 创建合约的时候xxx.deploy({value: 123})来同时转账主币，不然合约中没有币
+- 调用转账合约，gas是操作用户的，转的币是合约中的
+
+** 调用其他合约
+*** 调用的合约在一个文件中
+- 将要调用的合约当作类型，传入合约的地址，就可以调用了
+- 传递发送的主币 和普通调用相同（函数也要标记为payable），只是在调用的时候在函数名和货号之间增加{ value: msg.value}
+*** 调用合约不在一个文件中
+- 引入调用合约的Interface
+- 把Interface当作类型，同上
+*** 低级调用
+- call()
+  其实就是对地址执行call()，和前面的相同
+  ```
+  contract TestCall {
+    function foo(string memory _message, uint _x) external payable returns(bool, uint) {
+    }
+  }
+
+  contract Call {
+    function callFoo(address _test) external {
+      (bool ok, bytes memory data) = _test.call(abi.encodeWithSignature(
+        "foo(string,uint256)", "call foo", 123  // 函数签名, 参数列表... 函数签名中的uint要写uint256
+      ));
+    }
+  }
+  ```
+  call(params...) params:
+  - abi.encodeWithSignature("函数签名", 函数参数...)
+  - abi.encodeWithSelector(<合约名字>.<调用函数>.selector, 函数参数...)
+- delegatecall()
+  代理调用
+  A调用合约（本地账户），B代理调用合约，C被调用合约
+  A调用B，B代理调用C
+  相当于A用C的函数实现在B中执行
+  C中产生的状态变量影响会作用在B中，不会在C中
+  ⚠️  代理调用中的状态变量布局要和被调用合约中的相同，如果要在被调用合约中增加状态变量，要在和代理合约中
+  相同的状态变量布局后增加
+
+** 合约部署合约
+之前是用assembly，现在使用“工厂模式”
+使用new关键字
+```
+contract Account {
+  constructor(address owner) {
+  }
+}
+
+contract AccountFactory {
+  function createAccount(address _owner) {
+    Account account = new Account(_owner);  // account中是地址
+  }
+}
+```
+可以在类型和括号之间加上对象{salt: bytes32("xxxx")}
+```
+contract Account {
+  constructor(address owner) {
+  }
+}
+
+contract AccountFactory {
+  function createAccount(address _owner) {
+    Account account = new Account{salt: bytes32(uintNumber)}(_owner);  // account中是地址
+  }
+}
+```
+这种生成方式的地址可预测，计算方法：
+```
+function getAddress(bytes memory _bytecode, uint _salt) public view returns(address) {
+  bytes32 hash = keccak256(
+    abi.encodePacked(
+      // 0xff占位
+      // 执行部署的合约的地址，这里是本合约的地址
+      // bytes32(_salt) 执行部署时使用的, bytes32类型
+      // bytecode，被部署合约的bytecode，还有构造函数的参数
+      bytes1(0xff), address(this), _salt, keccak256(_bytescode) 
+    ));
+  return address(uint160(uint(hash)));
+}
+
+function getBytecode(<传递构造函数参数>) public pure returns(bytes memory) {
+  bytes memory bytecode = type(<Contract>).creationCode;
+  return abi.encodePacked(bytecode, abi.encode(<传递构造函数参数>));
+}
+```
+⚠️  注意salt不变，造成地址冲突
+⚠️  地址的生成hash -> uint -> uint160 -> address
+⚠️  生成的bytecode的构造函数参数要单独abi.encode()
+
+** library
+*** 定义
+```
+library LibraryName {
+  function xxx(params...) internal {}
+  .....
+}
+```
+*** 使用
+```
+contract ContractName {
+  LibraryName.xxx() // 直接调用
+}
+or
+contract ContractName {
+  using LibraryName for <type>  // 这个type就有了Library中的方法
+}
+```
+
+** Hash
+keccak256()
+参数是abi.encodePacked() or abi.encode()
+- abi.encodePacked() 不会补0 abi.encodePacked("AAA", "ABBB") 与abi.encodePacked("AAAA", "BBB")相同
+- abi.encode() 会补0 上面的例子在这里就不会相同，之后在用keccak256就不会发生hash碰撞。
+- 为了避免这类错误，可以使用abi.encode或者，在使用abi.encodePacked的时候，相同类型的参数中加不同类型的参数
+  如"AAA", 123, "ABBB"就不会出翔碰撞
+
+* 验证签名????
+```
+contract VerifySig {
+  // _signer 签名人地址
+  // message 签名的内容
+  // _sig 签名后的结果（一定是bytes类型）
+  function verify(
+    address _signer,
+    string memory _message,
+    bytes memory _sig
+    )
+    public pure returns(bool) {
+      bytes32 messageHash = getMessageHash(_message);
+      bytes32 ethSignedMessageHash = getEthSignedMessage(messageHash);
+
+      return recover(ethSignedMessageHash, _sig) == _signer;
+  }
+
+  function getMessageHash(string memory _message) internal pure returns(bytes32) {
+    return keccak256(abi.encodePacked(_message));
+  }
+
+  function getEthSignedMessageHash(bytes _messageHash) internal pure returns(byte32) {
+    return keccak256(abi.encodePacked(
+      "\x19Ethereum Signed Message:\n32", // 线下用同样的字符串
+      _messageHash
+    ))
+  }
+
+  function recover(bytes32 memory _ethSignedMessageHash, bytes memory _sig) internal pure returns(address) {
+    (bytes32 r, bytes32 s, uint8 v) = _split(_sig);
+    return ecrecover(_ethSignedMessageHash, v, r, s);
+  }
+
+  function _split(bytes memory _sig) internal pure returns(bytes32 r, bytes32 s, uint8 v) {
+    require(_sig.length == 65, "invalid signature length");
+    assembly {
+      r := mload(add(_sig, 32))
+      s := mload(add(_sig, 64))
+      v := mload(byte(0, add(_sig, 96)))
+    }
+  }
+}
+
+* selfdestruct
+- delete contract
+- force send ether to any address
+```
+constract Kill {
+  function kill() external {
+    selfdestruct(payable(msg.sender));
+  }
+}
+```
+调用kill函数，会删除合约Kill，并将合约中的以太发送到调用者账户。
+这个账户（合约）既使不能接收（没有标记payable），也会强制被发送
+
+* 函数选择器
+msg.data中的数据分为1+部分
+- 函数签名 4字节（bytes4，8个16进制字符）。= bytes4(keccak256(bytes("functionName(type1,typ2)")))
+- 其他是函数参数（？每多少位？）
+所以合约中函数名相同，参数不同，代表不同的函数
